@@ -1,0 +1,86 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>Door scanner</title>
+<style>
+  :root { --bg: rgb(250,250,251); --ink: rgb(20,20,24); --muted: rgb(110,110,118); --line: rgb(215,215,222); --accent: rgb(90,60,160); --ok: rgb(22,163,74); --warn: rgb(245,158,11); --bad: rgb(220,38,38); }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; background: var(--bg); color: var(--ink); font-family: -apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif; -webkit-user-select: none; user-select: none; }
+  .wrap { height: 100%; display: flex; flex-direction: column; gap: 6px; padding: 6px; }
+  .cam { position: relative; flex: 1 1 auto; min-height: 120px; background: rgb(24,24,28); border-radius: 10px; overflow: hidden; }
+  video { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .cam .frame { position: absolute; inset: 14% 18%; border: 2px solid rgba(255,255,255,.55); border-radius: 8px; pointer-events: none; }
+  .cam.off video { display: none; }
+  .cam .idle { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: rgba(255,255,255,.7); font-size: 14px; text-align: center; padding: 10px; }
+  .cam.on .idle { display: none; }
+  .msg { min-height: 40px; border-radius: 8px; padding: 6px 8px; font-size: 15px; font-weight: 700; line-height: 1.2; background: white; border: 1px solid var(--line); }
+  .msg small { display: block; font-weight: 500; font-size: 12px; color: var(--muted); }
+  .msg.ok { background: var(--ok); color: white; border-color: var(--ok); } .msg.ok small { color: rgba(255,255,255,.85); }
+  .msg.warn { background: var(--warn); color: rgb(30,20,0); border-color: var(--warn); } .msg.warn small { color: rgba(30,20,0,.75); }
+  .msg.bad { background: var(--bad); color: white; border-color: var(--bad); } .msg.bad small { color: rgba(255,255,255,.85); }
+  .bar { display: flex; gap: 6px; }
+  button { flex: 1; font: inherit; font-size: 16px; font-weight: 700; padding: 11px 10px; border-radius: 9px; border: 1.5px solid var(--accent); background: var(--accent); color: white; }
+  button.sec { background: white; color: var(--accent); }
+  button:active { opacity: .8; }
+  .foot { font-size: 11px; color: var(--muted); text-align: center; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="cam off" id="cam"><video id="v" playsinline muted autoplay></video><div class="frame"></div><div class="idle" id="idle">Tap Start to open the camera</div></div>
+  <div class="msg" id="msg">Ready<small id="sub">Each ticket is sent to the door as it is read.</small></div>
+  <div class="bar"><button id="toggle">Start</button></div>
+  <div class="foot" id="foot"></div>
+</div>
+<script src="zxing.min.js?v=0.21.3"></script>
+<script src="scanner.js?v=1"></script>
+<script>
+// Door scanner page. Generic part: Scanner (scanner.js). Adapter: where each code goes.
+//   Inside a FileMaker web viewer (window.FileMaker present): FileMaker.PerformScript(SCRIPT, {code}) — SCRIPT defaults to Pub_Scan,
+//   override with ?script=Name. The door page shows the result banner; this page shows a short one too when FileMaker calls fromServer.
+//   Anywhere else: the code is shown and, if ?post=https://… is given, POSTed there as JSON {code} (a hook for a future backend).
+var params = {}; location.search.replace(/^\?/, '').split('&').forEach(function (kv) { if (!kv) return; var p = kv.split('='); params[decodeURIComponent(p[0])] = decodeURIComponent(p[1] || ''); });
+var SCRIPT = params.script || 'Pub_Scan', POST = params.post || '';
+var msg = document.getElementById('msg'), sub = document.getElementById('sub'), cam = document.getElementById('cam'), toggle = document.getElementById('toggle'), foot = document.getElementById('foot');
+var inFM = !!(window.FileMaker && window.FileMaker.PerformScript);
+foot.textContent = inFM ? 'Sending to FileMaker script ' + SCRIPT : (POST ? 'Posting to ' + POST : 'Standalone — codes are shown only');
+var msgTimer = null;
+function show(text, small, cls, ms) { msg.className = 'msg' + (cls ? ' ' + cls : ''); msg.textContent = text; var s = document.createElement('small'); s.id = 'sub'; s.textContent = small || ''; msg.appendChild(s); clearTimeout(msgTimer); if (ms) msgTimer = setTimeout(function () { show(sc.running ? 'Scanning' : 'Ready', sc.running ? 'Hold the next ticket in the frame.' : 'Tap Start to open the camera.'); }, ms); }
+function beep(kind) { try { var A = window.AudioContext || window.webkitAudioContext; if (!A) return; var ctx = beep.ctx || (beep.ctx = new A()), o = ctx.createOscillator(), g = ctx.createGain(); o.frequency.value = kind === 'ok' ? 1100 : 300; o.connect(g); g.connect(ctx.destination); g.gain.value = 0.15; o.start(); o.stop(ctx.currentTime + (kind === 'ok' ? 0.12 : 0.35)); } catch (e) {} }
+function clockTS(ts) { var m = String(ts || '').match(/(\d{1,2}):(\d{2})(?::\d{2})?\s*(AM|PM)?\s*$/i); if (!m) return ''; var h = +m[1]; if (m[3]) { if (/pm/i.test(m[3]) && h < 12) h += 12; if (/am/i.test(m[3]) && h === 12) h = 0; } var ap = h >= 12 ? 'pm' : 'am'; h = h % 12 || 12; return h + ':' + m[2] + ' ' + ap; }
+
+var sc = Scanner.create({
+  video: document.getElementById('v'),
+  repeatAfterMs: 3000,
+  onStatus: function (m, level) { if (level === 'bad') show('Camera problem', m, 'bad'); },
+  onRead: function (text) {
+    var code = text.trim();
+    if (inFM) { show('Read ✓', 'Checking ' + code.slice(-6) + '…', ''); FileMaker.PerformScript(SCRIPT, JSON.stringify({ code: code })); }
+    else if (POST) { show('Read ✓', 'Sending…'); fetch(POST, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: code }) }).then(function (r) { return r.text(); }).then(function (t) { show('Sent', t.slice(0, 80), 'ok', 2500); }).catch(function (e) { show('Send failed', String(e), 'bad', 4000); }); }
+    else { beep('ok'); show('Read', code, 'ok', 4000); }
+  }
+});
+toggle.addEventListener('click', function () {
+  if (sc.running) { sc.stop(); cam.className = 'cam off'; toggle.textContent = 'Start'; toggle.className = ''; show('Ready', 'Tap Start to open the camera.'); return; }
+  sc.start().then(function () { cam.className = 'cam on'; toggle.textContent = 'Stop'; toggle.className = 'sec'; show('Scanning', 'Hold the ticket in the frame.'); }).catch(function () {});
+});
+// FileMaker pushes the server's reply here (Pub_Door → Perform JavaScript in Web Viewer "ScanViewer" → fromServer)
+window.fromServer = function (json) {
+  var d; try { d = JSON.parse(json); } catch (e) { return; }
+  if (!d || d.action !== 'scan' || !d.scan || !d.scan.status) return;
+  var s = d.scan, name = s.name || '';
+  if (s.status === 'ok') { beep('ok'); show('✓ ' + name, 'Checked in', 'ok', 2500); }
+  else if (s.status === 'released') { beep('ok'); show('✓ ' + name, 'Released ticket — checked in anyway', 'ok', 3000); }
+  else if (s.status === 'already') { beep('bad'); show(name, 'Already in' + (s.at ? ' at ' + clockTS(s.at) : ''), 'warn', 3500); }
+  else if (s.status === 'cancelled') { beep('bad'); show(name, 'Ticket cancelled — not checked in', 'bad', 4500); }
+  else if (s.status === 'other_event') { beep('bad'); show(name, 'Wrong performance', 'bad', 4500); }
+  else if (s.status === 'none') { /* camera-cancel reply from the native path; nothing to show here */ }
+  else { beep('bad'); show('Not found', 'Not on this list — Sync, or check in by name', 'bad', 4500); }
+  sc.forget();
+};
+if (params.auto === '1') toggle.click();
+</script>
+</body>
+</html>

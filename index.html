@@ -36,6 +36,7 @@
 </div>
 <script src="zxing.min.js?v=0.21.3"></script>
 <script src="scanner.js?v=1"></script>
+<!-- page v2 -->
 <script>
 // Door scanner page. Generic part: Scanner (scanner.js). Adapter: where each code goes.
 //   Inside a FileMaker web viewer (window.FileMaker present): FileMaker.PerformScript(SCRIPT, {code}) — SCRIPT defaults to Pub_Scan,
@@ -44,8 +45,11 @@
 var params = {}; location.search.replace(/^\?/, '').split('&').forEach(function (kv) { if (!kv) return; var p = kv.split('='); params[decodeURIComponent(p[0])] = decodeURIComponent(p[1] || ''); });
 var SCRIPT = params.script || 'Pub_Scan', POST = params.post || '';
 var msg = document.getElementById('msg'), sub = document.getElementById('sub'), cam = document.getElementById('cam'), toggle = document.getElementById('toggle'), foot = document.getElementById('foot');
-var inFM = !!(window.FileMaker && window.FileMaker.PerformScript);
-foot.textContent = inFM ? 'Sending to FileMaker script ' + SCRIPT : (POST ? 'Posting to ' + POST : 'Standalone — codes are shown only');
+// FileMaker injects window.FileMaker shortly AFTER the page loads, so never decide once at load: check each time, and keep polling for the footer
+function hasFM() { return !!(window.FileMaker && window.FileMaker.PerformScript); }
+function fm(script, param) { if (hasFM()) window.FileMaker.PerformScript(script, param == null ? '' : String(param)); else setTimeout(function(){ fm(script, param); }, 150); }
+function setFoot() { foot.textContent = hasFM() ? 'Sending to FileMaker script ' + SCRIPT : (POST ? 'Posting to ' + POST : 'Standalone — codes are shown only'); }
+setFoot(); var fmPoll = setInterval(function(){ setFoot(); if (hasFM()) clearInterval(fmPoll); }, 200); setTimeout(function(){ clearInterval(fmPoll); }, 15000);
 var msgTimer = null;
 function show(text, small, cls, ms) { msg.className = 'msg' + (cls ? ' ' + cls : ''); msg.textContent = text; var s = document.createElement('small'); s.id = 'sub'; s.textContent = small || ''; msg.appendChild(s); clearTimeout(msgTimer); if (ms) msgTimer = setTimeout(function () { show(sc.running ? 'Scanning' : 'Ready', sc.running ? 'Hold the next ticket in the frame.' : 'Tap Start to open the camera.'); }, ms); }
 function beep(kind) { try { var A = window.AudioContext || window.webkitAudioContext; if (!A) return; var ctx = beep.ctx || (beep.ctx = new A()), o = ctx.createOscillator(), g = ctx.createGain(); o.frequency.value = kind === 'ok' ? 1100 : 300; o.connect(g); g.connect(ctx.destination); g.gain.value = 0.15; o.start(); o.stop(ctx.currentTime + (kind === 'ok' ? 0.12 : 0.35)); } catch (e) {} }
@@ -57,7 +61,7 @@ var sc = Scanner.create({
   onStatus: function (m, level) { if (level === 'bad') show('Camera problem', m, 'bad'); },
   onRead: function (text) {
     var code = text.trim();
-    if (inFM) { show('Read ✓', 'Checking ' + code.slice(-6) + '…', ''); FileMaker.PerformScript(SCRIPT, JSON.stringify({ code: code })); }
+    if (hasFM()) { show('Read ✓', 'Checking ' + code.slice(-6) + '…', ''); fm(SCRIPT, JSON.stringify({ code: code })); }
     else if (POST) { show('Read ✓', 'Sending…'); fetch(POST, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: code }) }).then(function (r) { return r.text(); }).then(function (t) { show('Sent', t.slice(0, 80), 'ok', 2500); }).catch(function (e) { show('Send failed', String(e), 'bad', 4000); }); }
     else { beep('ok'); show('Read', code, 'ok', 4000); }
   }

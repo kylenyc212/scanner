@@ -14,7 +14,7 @@ video{width:100%;max-width:360px;border-radius:10px;background:rgb(30,30,30);mar
 <button id="go">Start camera</button>
 <video id="v" playsinline muted autoplay></video>
 <div id="result"></div>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/zxing-library/0.21.3/umd/index.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js"></script>
 <script>
 function set(id, text, cls) { var e = document.getElementById(id); e.textContent = text; e.className = cls || ''; }
 set('origin', location.protocol + '//' + location.host + (location.pathname.length > 30 ? '' : location.pathname));

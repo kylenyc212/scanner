@@ -33,7 +33,7 @@
       if (!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)) { onStatus('No camera API in this browser.', 'bad'); return Promise.reject(new Error('no_api')); }
       if (typeof global.ZXing === 'undefined') { onStatus('Decoder not loaded.', 'bad'); return Promise.reject(new Error('no_decoder')); }
       onStatus('Starting camera…', 'info');
-      return navigator.mediaDevices.getUserMedia({ video: { facingMode: facing, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false }).then(function (s) {
+      return navigator.mediaDevices.getUserMedia({ video: { facingMode: facing, width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 15, max: 20 } }, audio: false }).then(function (s) {   // a QR needs little: low resolution and frame rate keep the device cool
         stream = s; api.running = true;
         if (video) video.srcObject = s;
         reader = new global.ZXing.BrowserMultiFormatReader();

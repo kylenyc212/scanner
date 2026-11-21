@@ -35,8 +35,8 @@
   <div class="foot" id="foot"></div>
 </div>
 <script src="zxing.min.js?v=0.21.3"></script>
-<script src="scanner.js?v=1"></script>
-<!-- page v2 -->
+<script src="scanner.js?v=2"></script>
+<!-- page v3 -->
 <script>
 // Door scanner page. Generic part: Scanner (scanner.js). Adapter: where each code goes.
 //   Inside a FileMaker web viewer (window.FileMaker present): FileMaker.PerformScript(SCRIPT, {code}) — SCRIPT defaults to Pub_Scan,
@@ -55,11 +55,18 @@ function show(text, small, cls, ms) { msg.className = 'msg' + (cls ? ' ' + cls :
 function beep(kind) { try { var A = window.AudioContext || window.webkitAudioContext; if (!A) return; var ctx = beep.ctx || (beep.ctx = new A()), o = ctx.createOscillator(), g = ctx.createGain(); o.frequency.value = kind === 'ok' ? 1100 : 300; o.connect(g); g.connect(ctx.destination); g.gain.value = 0.15; o.start(); o.stop(ctx.currentTime + (kind === 'ok' ? 0.12 : 0.35)); } catch (e) {} }
 function clockTS(ts) { var m = String(ts || '').match(/(\d{1,2}):(\d{2})(?::\d{2})?\s*(AM|PM)?\s*$/i); if (!m) return ''; var h = +m[1]; if (m[3]) { if (/pm/i.test(m[3]) && h < 12) h += 12; if (/am/i.test(m[3]) && h === 12) h = 0; } var ap = h >= 12 ? 'pm' : 'am'; h = h % 12 || 12; return h + ':' + m[2] + ' ' + ap; }
 
+// Battery: the camera stops by itself after IDLE_MS without a read (tap Start again), and FileMaker can stop it when the box is hidden (window.stopCam)
+var IDLE_MS = +(params.idle || 90) * 1000, idleTimer = null;
+function armIdle() { clearTimeout(idleTimer); idleTimer = setTimeout(function () { if (sc.running) { stopCam(); show('Camera off to save battery', 'Tap Start for the next ticket.', 'warn'); } }, IDLE_MS); }
+function stopCam() { clearTimeout(idleTimer); if (sc.running) sc.stop(); cam.className = 'cam off'; toggle.textContent = 'Start'; toggle.className = ''; }
+window.stopCam = stopCam;
+document.addEventListener('visibilitychange', function () { if (document.hidden) stopCam(); });
 var sc = Scanner.create({
   video: document.getElementById('v'),
   repeatAfterMs: 3000,
   onStatus: function (m, level) { if (level === 'bad') show('Camera problem', m, 'bad'); },
   onRead: function (text) {
+    armIdle();
     var code = text.trim();
     if (hasFM()) { show('Read ✓', 'Checking ' + code.slice(-6) + '…', ''); fm(SCRIPT, JSON.stringify({ code: code })); }
     else if (POST) { show('Read ✓', 'Sending…'); fetch(POST, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: code }) }).then(function (r) { return r.text(); }).then(function (t) { show('Sent', t.slice(0, 80), 'ok', 2500); }).catch(function (e) { show('Send failed', String(e), 'bad', 4000); }); }
@@ -67,8 +74,8 @@ var sc = Scanner.create({
   }
 });
 toggle.addEventListener('click', function () {
-  if (sc.running) { sc.stop(); cam.className = 'cam off'; toggle.textContent = 'Start'; toggle.className = ''; show('Ready', 'Tap Start to open the camera.'); return; }
-  sc.start().then(function () { cam.className = 'cam on'; toggle.textContent = 'Stop'; toggle.className = 'sec'; show('Scanning', 'Hold the ticket in the frame.'); }).catch(function () {});
+  if (sc.running) { stopCam(); show('Ready', 'Tap Start to open the camera.'); return; }
+  sc.start().then(function () { cam.className = 'cam on'; toggle.textContent = 'Stop'; toggle.className = 'sec'; show('Scanning', 'Hold the ticket in the frame.'); armIdle(); }).catch(function () {});
 });
 // FileMaker pushes the server's reply here (Pub_Door → Perform JavaScript in Web Viewer "ScanViewer" → fromServer)
 window.fromServer = function (json) {

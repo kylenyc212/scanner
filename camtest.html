@@ -1,0 +1,35 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Camera test</title>
+<style>body{font-family:-apple-system,Helvetica,sans-serif;margin:0;padding:16px;background:white;color:rgb(17,17,17)}
+h1{font-size:18px;margin:0 0 10px}.row{padding:6px 0;border-bottom:1px solid rgb(220,220,220);font-size:15px}.ok{color:rgb(22,130,60);font-weight:700}.bad{color:rgb(200,30,30);font-weight:700}
+video{width:100%;max-width:360px;border-radius:10px;background:rgb(30,30,30);margin-top:10px}button{font:inherit;font-size:16px;padding:10px 16px;border-radius:8px;border:1px solid rgb(90,60,160);background:rgb(90,60,160);color:white;margin-top:10px}
+#result{font-size:22px;font-weight:800;margin-top:10px;word-break:break-all}</style></head>
+<body>
+<h1>Can this web viewer use the camera?</h1>
+<div class="row">Loaded from: <b id="origin"></b></div>
+<div class="row">Secure context (https): <b id="secure"></b></div>
+<div class="row">navigator.mediaDevices present: <b id="md"></b></div>
+<div class="row">getUserMedia result: <b id="gum">not tried yet</b></div>
+<button id="go">Start camera</button>
+<video id="v" playsinline muted autoplay></video>
+<div id="result"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/zxing-library/0.21.3/umd/index.min.js"></script>
+<script>
+function set(id, text, cls) { var e = document.getElementById(id); e.textContent = text; e.className = cls || ''; }
+set('origin', location.protocol + '//' + location.host + (location.pathname.length > 30 ? '' : location.pathname));
+set('secure', window.isSecureContext ? 'yes' : 'NO', window.isSecureContext ? 'ok' : 'bad');
+set('md', (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) ? 'yes' : 'NO', (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) ? 'ok' : 'bad');
+document.getElementById('go').addEventListener('click', function(){
+  if (!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)) { set('gum', 'no API - camera impossible here', 'bad'); return; }
+  set('gum', 'asking…');
+  navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false }).then(function(stream){
+    set('gum', 'GRANTED - camera works in this viewer', 'ok');
+    var v = document.getElementById('v'); v.srcObject = stream;
+    try {
+      var reader = new ZXing.BrowserMultiFormatReader();
+      reader.decodeFromStream(stream, v, function(res){ if (res) { document.getElementById('result').textContent = 'Read: ' + res.getText(); } });
+    } catch (e) { document.getElementById('result').textContent = 'decoder error: ' + e.message; }
+  }).catch(function(err){ set('gum', 'REFUSED: ' + err.name + ' - ' + err.message, 'bad'); });
+});
+</script></body></html>
